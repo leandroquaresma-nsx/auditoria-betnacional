@@ -1,22 +1,16 @@
 import os
 import re
 import io
+import base64
 import pandas as pd
 import openpyxl
 import matplotlib
-matplotlib.use('Agg') # Força o matplotlib a rodar em segundo plano no servidor
+matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from google import genai
-
-# Recursos para envio de e-mail com anexos (SMTP)
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
 
 # Recursos do ReportLab para o PDF
 from reportlab.lib.pagesizes import letter
@@ -25,16 +19,11 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 app = Flask(__name__)
-CORS(app) # IMPORTANTE: Permite que o Google Sites envie dados para cá
+CORS(app) 
 
-# 🔐 Configurações de Segurança do Servidor (Variáveis de Ambiente)
 CHAVE_API = os.environ.get("GEMINI_API_KEY")
 client = genai.Client(api_key=CHAVE_API)
 
-EMAIL_REMETENTE = os.environ.get("EMAIL_REMETENTE") # Seu e-mail de disparo
-SENHA_REMETENTE = os.environ.get("EMAIL_PASSWORD")   # Sua senha de app do e-mail
-
-# --- FUNÇÕES AUXILIARES (O motor que validamos) ---
 def limpar_dados_sensiveis(texto):
     if not isinstance(texto, str): return texto
     texto = re.sub(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', '[EMAIL PROTEGIDO]', texto)
@@ -48,24 +37,19 @@ def cacar_nome_atendente(conversa):
     if match: return match.group(1)
     return "Não identificado"
 
-# --- ROTA DA API ---
 @app.route("/auditar", methods=["POST"])
 def auditar():
     try:
-        # 1. Receber os dados enviados pelo Google Sites
-        if "file" not in request.files or "email" not in request.form:
-            return jsonify({"status": "erro", "mensagem": "Arquivo ou e-mail ausentes."}), 400
+        if "file" not in request.files:
+            return jsonify({"status": "erro", "mensagem": "Arquivo ausente."}), 400
             
         file = request.files["file"]
-        email_destino = request.form["email"]
         
-        # 2. Ler a planilha vinda do site
         if file.filename.endswith('.csv'):
             df = pd.read_csv(file)
         else:
             df = pd.read_excel(file)
             
-        # 3. Processamento de dados e Segurança
         df['atendente_extraido'] = df['comments'].apply(cacar_nome_atendente)
         for col in ['comments', 'ticket_summary']:
             if col in df.columns:
@@ -79,7 +63,6 @@ def auditar():
         principais_motivos.columns = ['Motivo_Ocorrencia', 'Quantidade']
         motivos_top5 = principais_motivos.head(5)
         
-        # 4. Geração dos Gráficos em Imagem temporária
         # Gráfico Motivos
         fig, ax = plt.subplots(figsize=(6, 3))
         nomes_limpos = [m.replace('_', ' ').title() for m in motivos_top5['Motivo_Ocorrencia']]
@@ -89,26 +72,28 @@ def auditar():
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
         plt.tight_layout()
-        plt.savefig('/tmp/grafico_motivos.png', dpi=150)
+        
+        grafico_path = "/tmp/grafico_motivos.png"
+        plt.savefig(grafico_path, dpi=150)
         plt.close()
 
-        # 5. Consulta Inteligente à IA da Google
+        # Consulta Inteligente à IA da Google
         try:
-            prompt = f"Você é um Auditor Sênior da Betnacional... Motivos: {str(motivos_top5.to_dict())}"
+            prompt = f"Você é um Auditor Sênior da Betnacional. Analise estes motivos de suporte e gere um laudo executivo curto focado em melhorias: {str(motivos_top5.to_dict())}"
             resposta = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
             texto_ia = resposta.text
         except:
             texto_ia = "DIAGNÓSTICO OPERACIONAL:\nO volume de suporte está concentrado em demandas de redefinição de acessos. Recomenda-se melhorias nos fluxos automáticos."
 
-        # 6. Geração do Excel estruturado
+        # Geração do Excel estruturado
         nome_excel = "/tmp/Relatorio_Auditoria_Betnacional.xlsx"
         wb = openpyxl.Workbook()
         ws1 = wb.active
         ws1.title = 'Dashboard Volumetrico'
         ws1.append(['Motivo da Ocorrência', 'Quantidade de Casos'])
         for _, row in principais_motivos.iterrows(): ws1.append(list(row))
-        if os.path.exists('/tmp/grafico_motivos.png'):
-            ws1.add_image(openpyxl.drawing.image.Image('/tmp/grafico_motivos.png'), 'D2')
+        if os.path.exists(grafico_path):
+            ws1.add_image(openpyxl.drawing.image.Image(grafico_path), 'D2')
         
         ws3 = wb.create_sheet(title='Base Dados Anonimizada')
         ws3.append(list(df.columns))
@@ -116,7 +101,7 @@ def auditar():
             ws3.append([str(item) if isinstance(item, (list, dict)) else item for item in row])
         wb.save(nome_excel)
 
-        # 7. Geração do PDF Executivo
+        # Geração do PDF Executivo
         nome_pdf = "/tmp/Laudo_Executivo_Auditoria.pdf"
         doc = SimpleDocTemplate(nome_pdf, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
         story = []
@@ -127,40 +112,27 @@ def auditar():
         story.append(Paragraph("BETNACIONAL | EXECUTIVE AUDIT DASHBOARD", style_corpo))
         story.append(Paragraph("Auditoria Estratégica de Suporte", style_titulo))
         
-        if os.path.exists('/tmp/grafico_motivos.png'):
-            story.append(Image('/tmp/grafico_motivos.png', width=330, height=165))
+        if os.path.exists(grafico_path):
+            story.append(Image(grafico_path, width=330, height=165))
             story.append(Spacer(1, 10))
             
         for p in texto_ia.split('\n\n'):
             story.append(Paragraph(p.replace('**', ''), style_corpo))
         doc.build(story)
 
-        # 8. SISTEMA DE DISPARO DE E-MAIL (SMTP)
-        msg = MIMEMultipart()
-        msg['From'] = EMAIL_REMETENTE
-        msg['To'] = email_destino
-        msg['Subject'] = "📊 Relatórios Disponíveis: Auditoria de Suporte Betnacional"
-        
-        corpo_email = "Olá,\n\nA auditoria da sua planilha foi concluída com sucesso pela IA!\nEm anexo, você encontrará o PDF Executivo com gráficos e o Excel consolidado com as bases de dados protegidas."
-        msg.attach(MIMEText(corpo_email, 'plain'))
+        # Transformar arquivos em base64 para devolver ao navegador
+        with open(nome_excel, "rb") as f:
+            excel_encoded = base64.b64encode(f.read()).decode('utf-8')
+            
+        with open(nome_pdf, "rb") as f:
+            pdf_encoded = base64.b64encode(f.read()).decode('utf-8')
 
-        # Anexando os arquivos criados
-        for arquivo_caminho, arquivo_nome in [(nome_excel, "Relatorio_Auditoria.xlsx"), (nome_pdf, "Laudo_Executivo.pdf")]:
-            with open(arquivo_caminho, "rb") as f:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f"attachment; filename={arquivo_nome}")
-                msg.attach(part)
-
-        # Conectando ao servidor de e-mail (Exemplo usando Gmail)
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(EMAIL_REMETENTE, SENHA_REMETENTE)
-        server.sendmail(EMAIL_REMETENTE, email_destino, msg.as_string())
-        server.quit()
-
-        return jsonify({"status": "sucesso", "mensagem": "Auditoria realizada e relatórios enviados por e-mail!"}), 200
+        return jsonify({
+            "status": "sucesso",
+            "mensagem": "Auditoria concluída! Seus relatórios foram gerados.",
+            "excel": excel_encoded,
+            "pdf": pdf_encoded
+        }), 200
 
     except Exception as e:
         return jsonify({"status": "erro", "mensagem": str(e)}), 500
