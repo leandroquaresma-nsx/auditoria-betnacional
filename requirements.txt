@@ -1,7 +1,0 @@
-flask
-flask-cors
-pandas
-openpyxl
-reportlab
-matplotlib
-google-genai
