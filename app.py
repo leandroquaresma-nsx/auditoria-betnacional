@@ -67,29 +67,25 @@ def auditar():
         principais_motivos.columns = ['Motivo_Ocorrencia', 'Quantidade']
         motivos_top5 = principais_motivos.head(5)
         
-        # 🎨 GRÁFICO ESTILO POWER BI (DONUT CHART)
+        # Gráfico Estilo Power BI (Donut Chart)
         fig, ax = plt.subplots(figsize=(7.5, 3.5))
         nomes_limpos = [m.replace('_', ' ').title() for m in motivos_top5['Motivo_Ocorrencia']]
         valores = motivos_top5['Quantidade']
         
-        # Paleta de Cores Dashboard
         cores = ['#FF5A00', '#1C2541', '#3A506B', '#5BC0BE', '#0B132B']
         
-        # Desenha a rosca
         wedges, texts, autotexts = ax.pie(
             valores, 
-            autopct=lambda p: f'{p*sum(valores)/100:,.0f}'.replace(',', '.'), # Mostra a quantidade real formatada
+            autopct=lambda p: f'{p*sum(valores)/100:,.0f}'.replace(',', '.'),
             startangle=140, 
             colors=cores,
             pctdistance=0.75,
             textprops=dict(color="white", weight="bold", fontsize=9)
         )
         
-        # Cria o buraco do meio (Donut)
         centre_circle = plt.Circle((0,0), 0.55, fc='white')
         ax.add_artist(centre_circle)
         
-        # Legenda idêntica ao Power BI à direita
         ax.legend(wedges, nomes_limpos, loc="center left", bbox_to_anchor=(1, 0.5), frameon=False, fontsize=9)
         ax.set_title('PRINCIPAIS VOLUMES DE ATENDIMENTO', fontsize=11, fontweight='bold', color='#0B132B', loc='left', pad=10)
         ax.axis('equal')  
@@ -131,8 +127,9 @@ def auditar():
         ws1.views.sheetView[0].showGridLines = True
         
         ws1.append(['Motivo da Ocorrência', 'Quantidade de Casos'])
+        # CORREÇÃO AQUI: Acessando as colunas pelos nomes oficiais textuais
         for _, row in principais_motivos.iterrows(): 
-            ws1.append([str(row[0]).replace('_', ' ').title(), row[1]])
+            ws1.append([str(row['Motivo_Ocorrencia']).replace('_', ' ').title(), row['Quantidade']])
         
         for cell in ws1[1]:
             cell.font = font_header
@@ -142,7 +139,7 @@ def auditar():
         for row in ws1.iter_rows(min_row=2, max_row=ws1.max_row, min_col=1, max_col=2):
             for cell in row:
                 cell.font = font_data
-                cell.border = borda_fina
+                cell.border = border=borda_fina
                 if cell.column == 2:
                     cell.alignment = Alignment(horizontal="right")
                     cell.number_format = '#,##0'
