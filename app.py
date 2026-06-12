@@ -12,6 +12,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from google import genai
 
+# Recursos de Estilização do Excel
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
 # Recursos do ReportLab para o PDF
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
@@ -63,14 +67,32 @@ def auditar():
         principais_motivos.columns = ['Motivo_Ocorrencia', 'Quantidade']
         motivos_top5 = principais_motivos.head(5)
         
-        # Gráfico Motivos
-        fig, ax = plt.subplots(figsize=(6, 3))
+        # 🎨 GRÁFICO ESTILO POWER BI (DONUT CHART)
+        fig, ax = plt.subplots(figsize=(7.5, 3.5))
         nomes_limpos = [m.replace('_', ' ').title() for m in motivos_top5['Motivo_Ocorrencia']]
-        ax.barh(nomes_limpos, motivos_top5['Quantidade'], color='#FF5A00')
-        ax.invert_yaxis()
-        ax.set_title('TOP OCORRÊNCIAS NO SUPORTE', fontsize=11, fontweight='bold', color='#0B132B')
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
+        valores = motivos_top5['Quantidade']
+        
+        # Paleta de Cores Dashboard
+        cores = ['#FF5A00', '#1C2541', '#3A506B', '#5BC0BE', '#0B132B']
+        
+        # Desenha a rosca
+        wedges, texts, autotexts = ax.pie(
+            valores, 
+            autopct=lambda p: f'{p*sum(valores)/100:,.0f}'.replace(',', '.'), # Mostra a quantidade real formatada
+            startangle=140, 
+            colors=cores,
+            pctdistance=0.75,
+            textprops=dict(color="white", weight="bold", fontsize=9)
+        )
+        
+        # Cria o buraco do meio (Donut)
+        centre_circle = plt.Circle((0,0), 0.55, fc='white')
+        ax.add_artist(centre_circle)
+        
+        # Legenda idêntica ao Power BI à direita
+        ax.legend(wedges, nomes_limpos, loc="center left", bbox_to_anchor=(1, 0.5), frameon=False, fontsize=9)
+        ax.set_title('PRINCIPAIS VOLUMES DE ATENDIMENTO', fontsize=11, fontweight='bold', color='#0B132B', loc='left', pad=10)
+        ax.axis('equal')  
         plt.tight_layout()
         
         grafico_path = "/tmp/grafico_motivos.png"
@@ -85,20 +107,82 @@ def auditar():
         except:
             texto_ia = "DIAGNÓSTICO OPERACIONAL:\nO volume de suporte está concentrado em demandas de redefinição de acessos. Recomenda-se melhorias nos fluxos automáticos."
 
-        # Geração do Excel estruturado
+        # Gerador de Excel Premium
         nome_excel = "/tmp/Relatorio_Auditoria_Betnacional.xlsx"
         wb = openpyxl.Workbook()
+        
+        COR_AZUL_HEADER = "1C2541"
+        COR_TEXTO_HEADER = "FFFFFF"
+        COR_LINHA_ZEBRA = "F8FAFC"
+        COR_BORDA = "E2E8F0"
+        
+        font_header = Font(name="Segoe UI", size=11, bold=True, color=COR_TEXTO_HEADER)
+        fill_header = PatternFill(start_color=COR_AZUL_HEADER, end_color=COR_AZUL_HEADER, fill_type="solid")
+        font_data = Font(name="Segoe UI", size=10, color="333333")
+        fill_zebra = PatternFill(start_color=COR_LINHA_ZEBRA, end_color=COR_LINHA_ZEBRA, fill_type="solid")
+        
+        borda_fina = Border(
+            left=Side(style='thin', color=COR_BORDA), right=Side(style='thin', color=COR_BORDA),
+            top=Side(style='thin', color=COR_BORDA), bottom=Side(style='thin', color=COR_BORDA)
+        )
+
         ws1 = wb.active
         ws1.title = 'Dashboard Volumetrico'
+        ws1.views.sheetView[0].showGridLines = True
+        
         ws1.append(['Motivo da Ocorrência', 'Quantidade de Casos'])
-        for _, row in principais_motivos.iterrows(): ws1.append(list(row))
+        for _, row in principais_motivos.iterrows(): 
+            ws1.append([str(row[0]).replace('_', ' ').title(), row[1]])
+        
+        for cell in ws1[1]:
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+            
+        for row in ws1.iter_rows(min_row=2, max_row=ws1.max_row, min_col=1, max_col=2):
+            for cell in row:
+                cell.font = font_data
+                cell.border = borda_fina
+                if cell.column == 2:
+                    cell.alignment = Alignment(horizontal="right")
+                    cell.number_format = '#,##0'
+                    
         if os.path.exists(grafico_path):
             ws1.add_image(openpyxl.drawing.image.Image(grafico_path), 'D2')
-        
+
+        for col in ws1.iter_cols(max_col=2):
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws1.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
         ws3 = wb.create_sheet(title='Base Dados Anonimizada')
+        ws3.views.sheetView[0].showGridLines = True
         ws3.append(list(df.columns))
+        
         for _, row in df.iterrows():
             ws3.append([str(item) if isinstance(item, (list, dict)) else item for item in row])
+            
+        for cell in ws3[1]:
+            cell.font = font_header
+            cell.fill = fill_header
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            
+        for r_idx, row in enumerate(ws3.iter_rows(min_row=2, max_row=ws3.max_row), start=2):
+            for cell in row:
+                cell.font = font_data
+                cell.border = borda_fina
+                if r_idx % 2 == 0:
+                    cell.fill = fill_zebra
+                if cell.column in [1, 2, 6]:
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left", vertical="center")
+
+        for col in ws3.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws3.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 50)
+
         wb.save(nome_excel)
 
         # Geração do PDF Executivo
@@ -113,14 +197,13 @@ def auditar():
         story.append(Paragraph("Auditoria Estratégica de Suporte", style_titulo))
         
         if os.path.exists(grafico_path):
-            story.append(Image(grafico_path, width=330, height=165))
-            story.append(Spacer(1, 10))
+            story.append(Image(grafico_path, width=400, height=186))
+            story.append(Spacer(1, 15))
             
         for p in texto_ia.split('\n\n'):
             story.append(Paragraph(p.replace('**', ''), style_corpo))
         doc.build(story)
 
-        # Transformar arquivos em base64 para devolver ao navegador
         with open(nome_excel, "rb") as f:
             excel_encoded = base64.b64encode(f.read()).decode('utf-8')
             
