@@ -96,6 +96,11 @@ def adicionar_rodape(canvas, doc):
     canvas.drawRightString(letter[0]-35, 20, f"Página {doc.page}")
     canvas.restoreState()
 
+# === ROTA RAIZ ADICIONADA PARA RESOLVER O ERRO 404 DO RENDER ===
+@app.route("/", methods=["GET"])
+def home():
+    return "<h1>Servidor da Betnacional 100% Operacional 🚀</h1><p>Aguardando planilhas via POST na rota /auditar</p>", 200
+
 @app.route("/auditar", methods=["POST"])
 def auditar():
     try:
