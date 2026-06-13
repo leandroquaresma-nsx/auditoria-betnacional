@@ -41,22 +41,15 @@ def limpar_dados_sensiveis(texto):
 def cacar_nome_atendente(conversa):
     if not isinstance(conversa, str): return "Não identificado"
     
-    # 1. Busca o padrão exato (Nome + Inicial + Ponto)
-    # A grande mágica aqui: Aceita nomes compostos (ex: "Ana Paula S.") e ignora se falta acento!
     match = re.search(r'\b([A-Za-zÀ-ÿ]+(?: [A-Za-zÀ-ÿ]+)* [A-Za-zÀ-ÿ]\.)', conversa)
-    
-    if match:
-        return match.group(1).title()
+    if match: return match.group(1).title()
         
-    # 2. Plano B: Procura nos cabeçalhos de mensagem (00:00:00) Nome:
     falantes = re.findall(r'\(\d{2}:\d{2}:\d{2}\)\s+([^:]+):', conversa)
     termos_robo = ['betnacional', 'bot', 'suporte', 'atendimento', 'web user']
     
     for falante in falantes:
         f_limpo = falante.strip()
         f_lower = f_limpo.lower()
-        
-        # Ignora bots e verifica se a pessoa tem o padrão do sobrenome abreviado
         if not any(robo in f_lower for robo in termos_robo):
             if re.search(r'\b[A-Za-zÀ-ÿ]\.?$', f_limpo):
                 return f_limpo.title()
@@ -112,7 +105,6 @@ def auditar():
         
         total_geral_casos = len(df)
         
-        # Super Enriquecimento de Dados
         df['atendente_extraido'] = df['comments'].apply(cacar_nome_atendente)
         df['origem_erro'] = df['reason'].apply(classificar_origem)
         df['tags'] = df['tags'].fillna('')
@@ -126,10 +118,8 @@ def auditar():
         for col in ['comments', 'ticket_summary']:
             if col in df.columns: df[col] = df[col].apply(limpar_dados_sensiveis)
 
-        # Cálculos de KPI Avançados
         qtd_inativos = int(df['is_inativo'].sum())
         pct_inativos = (qtd_inativos / total_geral_casos) * 100
-        
         pct_fcr = (df['fcr_sucesso'].sum() / total_geral_casos) * 100
         qtd_clientes_risco = int(df['risco_churn_critico'].sum())
         
@@ -142,7 +132,6 @@ def auditar():
 
         prejuizo_estimado = ((tma_medio_global * total_geral_casos) / 60) * CUSTO_HORA_ATENDENTE
 
-        # Matriz de Custo por Agente 
         df['custo_atendimento'] = (df['tma_minutos'] / 60) * CUSTO_HORA_ATENDENTE
         df_agentes = df[df['atendente_extraido'] != "Não identificado"].groupby('atendente_extraido').agg(
             Volume=('reason', 'count'), Custo_Gerado=('custo_atendimento', 'sum')
@@ -264,7 +253,8 @@ def auditar():
         ws1.add_image(openpyxl.drawing.image.Image(path_horario), f'B{linha_kpi+19}')
         ws1.add_image(openpyxl.drawing.image.Image(path_atendentes), f'F{linha_kpi+19}')
 
-        ws2 = wb.create_sheet('Database c/ Heatmap')
+        # CORREÇÃO AQUI: Retirada da barra (/) do nome da aba
+        ws2 = wb.create_sheet('Database com Heatmap')
         ws2.append(list(df.columns))
         for cell in ws2[1]:
             cell.font = Font(color="FFFFFF", bold=True)
