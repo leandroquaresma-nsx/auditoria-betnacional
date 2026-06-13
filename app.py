@@ -1,6 +1,8 @@
 import os
 import re
 import base64
+import html
+import traceback
 import pandas as pd
 import openpyxl
 import matplotlib
@@ -139,7 +141,7 @@ def auditar():
 
         motivos_agrupados = df.groupby('reason').agg(Quantidade=('reason', 'count')).reset_index().sort_values(by='Quantidade', ascending=False)
         motivos_top5 = motivos_agrupados.head(5)
-        top_motivo_nome = str(motivos_top5.iloc[0]['reason']).replace('_', ' ').title()
+        top_motivo_nome = str(motivos_top5.iloc[0]['reason']).replace('_', ' ').title() if not motivos_top5.empty else "N/A"
 
         volume_hora = df['hora_contato'].dropna().value_counts().sort_index()
         hora_pico = int(volume_hora.idxmax()) if not volume_hora.empty else 0
@@ -149,9 +151,10 @@ def auditar():
         font_titulo = {'fontsize': 10, 'fontweight': 'bold', 'color': '#0B132B'}
         
         fig1, ax1 = plt.subplots(figsize=(6.5, 3))
-        ax1.pie(motivos_top5['Quantidade'], colors=cores_bet, startangle=140, pctdistance=0.75, textprops=dict(color="white", weight="bold", fontsize=8))
-        ax1.add_artist(plt.Circle((0,0), 0.55, fc='white'))
-        ax1.legend([m.replace('_', ' ').title() for m in motivos_top5['reason']], loc="center left", bbox_to_anchor=(0.9, 0.5), frameon=False, fontsize=8)
+        if not motivos_top5.empty:
+            ax1.pie(motivos_top5['Quantidade'], colors=cores_bet, startangle=140, pctdistance=0.75, textprops=dict(color="white", weight="bold", fontsize=8))
+            ax1.add_artist(plt.Circle((0,0), 0.55, fc='white'))
+            ax1.legend([m.replace('_', ' ').title() for m in motivos_top5['reason']], loc="center left", bbox_to_anchor=(0.9, 0.5), frameon=False, fontsize=8)
         ax1.set_title('Concentração de Volume', fontdict=font_titulo, loc='left')
         plt.tight_layout()
         path_motivos = "/tmp/g_motivos.png"
@@ -159,7 +162,7 @@ def auditar():
         plt.close(fig1)
 
         fig2, ax2 = plt.subplots(figsize=(4, 3))
-        ax2.pie([total_geral_casos - qtd_clientes_risco, qtd_clientes_risco], labels=['Normal', 'Ameaça / Cancelamento'], autopct='%1.1f%%', colors=['#1C2541', '#EF4444'], startangle=90, textprops=dict(color="white", weight="bold", fontsize=9))
+        ax2.pie([total_geral_casos - qtd_clientes_risco, qtd_clientes_risco], labels=['Normal', 'Ameaça / Churn'], autopct='%1.1f%%', colors=['#1C2541', '#EF4444'], startangle=90, textprops=dict(color="white", weight="bold", fontsize=9))
         ax2.set_title('Índice de Risco (Churn)', fontdict=font_titulo)
         plt.tight_layout()
         path_risco = "/tmp/g_risco.png"
@@ -167,8 +170,9 @@ def auditar():
         plt.close(fig2)
 
         fig3, ax3 = plt.subplots(figsize=(4, 3))
-        ax3.barh(df_agentes.index[::-1], df_agentes['Custo_Gerado'][::-1], color='#FF5A00')
-        ax3.set_title('Maior Custo Operacional (R$) por Analista', fontdict=font_titulo, loc='left')
+        if not df_agentes.empty:
+            ax3.barh(df_agentes.index[::-1], df_agentes['Custo_Gerado'][::-1], color='#FF5A00')
+        ax3.set_title('Custo Operacional (R$) por Analista', fontdict=font_titulo, loc='left')
         ax3.spines['top'].set_visible(False)
         ax3.spines['right'].set_visible(False)
         plt.tight_layout()
@@ -181,7 +185,7 @@ def auditar():
             ax4.plot(volume_hora.index, volume_hora.values, color='#3A506B', marker='o', linewidth=2)
             ax4.fill_between(volume_hora.index, volume_hora.values, color='#3A506B', alpha=0.1)
             ax4.set_xticks(range(0, 24, 2))
-        ax4.set_title('Distribuição Horária (Workforce Management)', fontdict=font_titulo, loc='left')
+        ax4.set_title('Distribuição Horária (WFM)', fontdict=font_titulo, loc='left')
         ax4.grid(axis='y', linestyle='--', alpha=0.5)
         ax4.spines['top'].set_visible(False)
         ax4.spines['right'].set_visible(False)
@@ -192,14 +196,14 @@ def auditar():
 
         # --- IA ---
         prompt = (f"Atue como Chief Data Officer (CDO) da Betnacional. Analise estes dados auditados pelo sistema de IA:\n"
-                  f"- Ocorrências: {total_geral_casos} | SLA: {pct_dentro_sla:.1f}% | Prejuízo/Desperdício de tempo: R$ {prejuizo_estimado:,.2f}.\n"
-                  f"- ALERTA VERMELHO: {qtd_clientes_risco} clientes mencionaram intenção de cancelar, Procon ou advogados no chat.\n"
+                  f"- Ocorrências: {total_geral_casos} | SLA: {pct_dentro_sla:.1f}% | Prejuízo estimado: R$ {prejuizo_estimado:,.2f}.\n"
+                  f"- ALERTA VERMELHO: {qtd_clientes_risco} clientes mencionaram intenção de cancelar ou processos no chat.\n"
                   f"- Gargalo Crítico: {top_motivo_nome} com {pct_inativos:.1f}% de abandono total.\n"
-                  f"Crie um Laudo de Risco Preditivo com EXATAMENTE estes 4 tópicos (seja altamente formal e orientado a dados):\n"
+                  f"Crie um Laudo de Risco Preditivo com EXATAMENTE estes 4 tópicos (seja altamente formal):\n"
                   f"1. AUDITORIA FINANCEIRA (Descreva a perda de R$ {prejuizo_estimado:,.2f})\n"
-                  f"2. RADAR DE CRISE E CHURN (Discuta a gravidade dos {qtd_clientes_risco} clientes em risco jurídico/cancelamento)\n"
+                  f"2. RADAR DE CRISE E CHURN (Discuta a gravidade dos {qtd_clientes_risco} clientes em risco)\n"
                   f"3. PERFORMANCE E CUSTO HUMANO (Analise o impacto do TMA no custo do call center)\n"
-                  f"4. PLANO DE CONTENÇÃO (3 estratégias urgentes para mitigar processos e reduzir o SLA)")
+                  f"4. PLANO DE CONTENÇÃO (3 estratégias urgentes para mitigar processos)")
         try:
             texto_ia = client.models.generate_content(model='gemini-2.5-flash', contents=prompt).text
         except:
@@ -253,7 +257,6 @@ def auditar():
         ws1.add_image(openpyxl.drawing.image.Image(path_horario), f'B{linha_kpi+19}')
         ws1.add_image(openpyxl.drawing.image.Image(path_atendentes), f'F{linha_kpi+19}')
 
-        # CORREÇÃO AQUI: Retirada da barra (/) do nome da aba
         ws2 = wb.create_sheet('Database com Heatmap')
         ws2.append(list(df.columns))
         for cell in ws2[1]:
@@ -269,12 +272,12 @@ def auditar():
             if col == 'custo_atendimento': col_custo = get_column_letter(i + 1)
         
         if col_custo:
-            regra_barra = DataBarRule(start_type='num', start_value=0, end_type='max', color="FF5A00", showValue="None", minLength=None, maxLength=None)
+            regra_barra = DataBarRule(start_type='num', start_value=0, end_type='max', color="FF5A00", showValue="None")
             ws2.conditional_formatting.add(f'{col_custo}2:{col_custo}{ws2.max_row}', regra_barra)
 
         wb.save(nome_excel)
 
-        # --- PDF ---
+        # --- PDF BLINDADO CONTRA ERROS DE XML ---
         nome_pdf = "/tmp/Laudo_Auditoria.pdf"
         doc = SimpleDocTemplate(nome_pdf, pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
         story = []
@@ -300,8 +303,8 @@ def auditar():
         
         caixa_texto = [
             [Paragraph("<b>CRITICAL ALERT: RISCO JURÍDICO E CHURN</b>", ParagraphStyle('B', fontSize=10, textColor=colors.HexColor('#7F1D1D')))],
-            [Paragraph(f"O algoritmo de Processamento de Linguagem Natural (PNL) detetou <b>{qtd_clientes_risco} clientes</b> com alta probabilidade de cancelamento ou ameaça de processos legais (Procon, Advogados, Reclame Aqui). "
-                       f"Paralelamente, o gargalo operacional consumiu <b>R$ {prejuizo_estimado:,.2f}</b> em folha de pagamento improdutiva.", st_alerta)]
+            [Paragraph(f"O algoritmo de NLP detetou <b>{qtd_clientes_risco} clientes</b> com alta probabilidade de cancelamento ou ameaça de processos legais. "
+                       f"Paralelamente, o gargalo consumiu <b>R$ {prejuizo_estimado:,.2f}</b> em folha de pagamento improdutiva.", st_alerta)]
         ]
         tabela_destaque = Table(caixa_texto, colWidths=[460])
         tabela_destaque.setStyle(TableStyle([
@@ -315,8 +318,12 @@ def auditar():
         for paragrafo in texto_ia.split('\n'):
             texto = paragrafo.replace('**', '').strip()
             if not texto: continue
-            if texto[0].isdigit() and '.' in texto[:3]: story.append(Paragraph(texto, st_sub))
-            else: story.append(Paragraph(texto, st_txt))
+            
+            # BLINDAGEM ATIVADA: Limpa os caracteres que quebram o PDF (<, >, &)
+            texto_seguro = html.escape(texto)
+            
+            if texto_seguro[0].isdigit() and '.' in texto_seguro[:3]: story.append(Paragraph(texto_seguro, st_sub))
+            else: story.append(Paragraph(texto_seguro, st_txt))
                 
         story.append(PageBreak()) 
         
@@ -338,10 +345,12 @@ def auditar():
         with open(nome_excel, "rb") as f: exc_64 = base64.b64encode(f.read()).decode('utf-8')
         with open(nome_pdf, "rb") as f: pdf_64 = base64.b64encode(f.read()).decode('utf-8')
 
-        return jsonify({"status": "sucesso", "mensagem": "Auditoria de Data Science Concluída!", "excel": exc_64, "pdf": pdf_64}), 200
+        return jsonify({"status": "sucesso", "mensagem": "Auditoria Nível CDO Concluída!", "excel": exc_64, "pdf": pdf_64}), 200
 
     except Exception as e:
-        return jsonify({"status": "erro", "mensagem": str(e)}), 500
+        # A CAIXA NEGRA: Se algo falhar, isto imprime o erro exato nos logs do Render
+        traceback.print_exc()
+        return jsonify({"status": "erro", "mensagem": f"Erro interno do servidor: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
